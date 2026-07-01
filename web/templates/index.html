@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deteksi Duduk Membungkuk dan Durasi Duduk</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
+    <style>
+      #camera-wrapper {
+        transition: border-color 0.35s ease, background-color 0.35s ease;
+      }
+      #cameraFeed {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+    </style>
+  </head>
+
+  <body class="bg-white min-h-screen">
+
+    <!-- Navbar -->
+    <nav class="bg-white px-8 py-4 z-10 relative">
+      <div class="flex justify-between items-center">
+        <a href="" class="text-black text-lg font-bold">
+          Deteksi Duduk Membungkuk dan Durasi Duduk
+        </a>
+        <div class="hidden md:block">
+          <a href="" class="text-black font-bold bg-zinc-100 px-4 py-2 rounded">History</a>
+        </div>
+        <div class="md:hidden">
+          <button id="menu-toggle" class="text-black">
+            <i class="fa-solid fa-bars"></i>
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <div id="mobile-menu" class="hidden bg-zinc-900 w-1/2 float-end mt-2 me-2 py-4 rounded-md shadow-lg">
+      <a href="" class="text-black font-bold bg-zinc-100 px-4 py-2 rounded">History</a>
+    </div>
+
+    <div class="p-4 md:p-6 flex justify-center items-center min-h-[calc(100vh-80px)]">
+      <div
+        id="camera-wrapper"
+        class="relative border-4 border-zinc-100 bg-zinc-100 rounded-xl overflow-hidden
+               w-full max-w-[95vw] md:max-w-[85vw] lg:max-w-[75vw] xl:max-w-[70vw]"
+      >
+        <img
+          id="cameraFeed"
+          src="/static/blank.jpg"
+          alt="Camera Feed"
+        />
+
+        <div class="absolute left-4 bottom-4 flex flex-col space-y-2 z-10">
+          <div class="border-4 border-zinc-950 bg-zinc-950 rounded-xl px-8 py-2 font-semibold text-left text-sm text-white w-64 shadow-md">
+            Score: <span id="_text_score">0.0</span>
+          </div>
+          <div class="border-4 border-zinc-950 bg-zinc-950 rounded-xl px-8 py-2 font-semibold text-left text-sm text-white w-64 shadow-md">
+            Sit Duration: <span id="_text_sit_duration">00:00:00</span>
+          </div>
+        </div>
+
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+          <button
+            id="cameraBtn"
+            class="flex items-center justify-center w-20 h-20 rounded-full border-4 border-zinc-950 bg-zinc-950 transition shadow-md hover:scale-105 active:scale-95"
+          >
+            <i id="cameraIcon" class="fas fa-video-slash text-2xl text-white"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById("menu-toggle").addEventListener("click", function () {
+        document.getElementById("mobile-menu").classList.toggle("hidden");
+      });
+
+      const cameraBtn  = document.getElementById("cameraBtn");
+      const cameraIcon = document.getElementById("cameraIcon");
+      const cameraFeed = document.getElementById("cameraFeed");
+      const wrapper    = document.getElementById("camera-wrapper");
+
+      const STATUS_CLASSES = {
+        no_object: ["border-zinc-100",  "bg-zinc-100"],
+        person:    ["border-green-400", "bg-green-100"],
+        bungkuk:   ["border-red-500",   "bg-red-100"],
+      };
+      const ALL_CLS = ["border-zinc-100","border-green-400","border-red-500",
+                       "bg-zinc-100","bg-green-100","bg-red-100"];
+      let currentStatus = "no_object";
+
+      function applyStatus(status) {
+        if (status === currentStatus) return;
+        currentStatus = status;
+        ALL_CLS.forEach(c => wrapper.classList.remove(c));
+        (STATUS_CLASSES[status] || STATUS_CLASSES["no_object"])
+          .forEach(c => wrapper.classList.add(c));
+      }
+
+      let isCameraOn   = false;
+      let pollInterval = null;
+
+      const BLANK_SRC = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+
+      cameraFeed.src = BLANK_SRC;
+      cameraFeed.style.aspectRatio = "640/320";
+      cameraFeed.style.background  = "#111";
+
+      cameraBtn.addEventListener("click", () => {
+        const endpoint = isCameraOn ? "/camera/off" : "/camera/on";
+
+        fetch(endpoint, { method: "POST" })
+          .then(r => r.json())
+          .then(data => {
+            isCameraOn = (data.camera === "on");
+
+            cameraIcon.className = isCameraOn
+              ? "fas fa-video text-2xl text-white"
+              : "fas fa-video-slash text-2xl text-white";
+
+            if (isCameraOn) {
+              cameraFeed.src = "/video_feed?t=" + Date.now();
+              cameraFeed.style.background = "";
+              startPolling();
+            } else {
+              cameraFeed.src = BLANK_SRC;
+              cameraFeed.style.background = "#111";
+              stopPolling();
+              applyStatus("no_object");
+              document.getElementById("_text_score").textContent        = "0.0";
+              document.getElementById("_text_sit_duration").textContent = "00:00:00";
+            }
+          })
+          .catch(err => console.error("Toggle kamera gagal:", err));
+      });
+
+      function updateLiveData() {
+        fetch("/get_data")
+          .then(r => r.json())
+          .then(data => {
+            document.getElementById("_text_score").textContent        = data.score  ?? "0.0";
+            document.getElementById("_text_sit_duration").textContent = data.durasi ?? "00:00:00";
+            applyStatus(data.ui_status ?? "no_object");
+          })
+          .catch(err => console.error("Fetch error:", err));
+      }
+
+      function startPolling() {
+        if (pollInterval) return;
+        pollInterval = setInterval(updateLiveData, 500);
+      }
+
+      function stopPolling() {
+        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+      }
+    </script>
+  </body>
+</html>
